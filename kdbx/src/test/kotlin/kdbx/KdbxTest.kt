@@ -1,4 +1,4 @@
-package l.keepass.kdbx
+package kdbx
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

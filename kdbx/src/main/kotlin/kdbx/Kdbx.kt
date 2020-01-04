@@ -1,4 +1,4 @@
-package l.keepass.kdbx
+package kdbx
 
 import java.nio.ByteBuffer
 import java.nio.ByteOrder.BIG_ENDIAN
