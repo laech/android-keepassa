@@ -13,11 +13,14 @@ android {
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
+    sourceSets["main"].java.srcDir("src/main/kotlin")
+    sourceSets["test"].java.srcDir("src/test/kotlin")
+    sourceSets["androidTest"].java.srcDir("src/androidTest/kotlin")
 }
 
 dependencies {
-    implementation fileTree(dir: 'libs', include: ['*.jar'])
-    implementation"org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+    implementation project(':kdbx')
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
     implementation 'androidx.appcompat:appcompat:1.1.0'
     implementation 'androidx.core:core-ktx:1.1.0'
     testImplementation 'junit:junit:4.12'

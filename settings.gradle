@@ -1,2 +1,2 @@
-include ':app'
-rootProject.name='KeePassA'
+include ':app', ':kdbx'
+rootProject.name = 'keepassa'
