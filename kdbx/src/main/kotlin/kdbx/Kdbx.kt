@@ -6,19 +6,15 @@ import java.nio.ByteOrder.LITTLE_ENDIAN
 import java.nio.channels.ReadableByteChannel
 import java.util.*
 
-private const val SIGNATURE_1: Int = -1700603645 // 0x9AA2D903
-private const val SIGNATURE_2: Int = -1253311641 // 0xB54BFB67
-private const val VERSION_4: Int = 0x00040000
-
 private enum class Header {
-    END_OF_HEADER,
+    END,
     COMMENT,
-    CIPHER_ID,
-    COMPRESSION_FLAGS,
-    MASTER_SEED,
+    CIPHER,
+    COMPRESSION,
+    SEED,
     TRANSFORM_SEED,
     TRANSFORM_ROUNDS,
-    ENCRYPTION_IV,
+    IV,
     PROTECTED_STREAM_KEY,
     STREAM_START_BYTES,
     INNER_RANDOM_STREAM_ID,
@@ -77,24 +73,29 @@ internal enum class Cipher(uuidStr: String) {
 
 private class KdbxReader(private val input: ReadableByteChannel) {
 
-    private var cipher: Cipher? = null
     private var compression: Compression? = null
-    private var masterSeed: ByteString? = null
-    private var encryptionIv: ByteString? = null
+    private var cipher: Cipher? = null
+    private var seed: ByteString? = null
+    private var iv: ByteString? = null
 
-    internal fun readSignature1(): Int = readExpectingInt(SIGNATURE_1)
-    internal fun readSignature2(): Int = readExpectingInt(SIGNATURE_2)
-    internal fun readVersion(): Int = readExpectingInt(VERSION_4)
+    internal fun readSignature1(): Int = read32 { it == Kdbx.SIGNATURE_1 }
+    internal fun readSignature2(): Int = read32 { it == Kdbx.SIGNATURE_2 }
+
+    internal fun readVersion(): Int = read32 {
+        it.and(Kdbx.FILE_VERSION_MAJOR_MASK) == Kdbx.FILE_VERSION_4
+    }
+
     internal fun readHeaders(): Kdbx.Headers {
         while (readHeader()) {
+            // continue
         }
-        return Kdbx.Headers(cipher, compression, masterSeed, encryptionIv)
+        return Kdbx.Headers(compression, cipher, seed, iv)
     }
 
     private fun readHeader(): Boolean {
-        val id = readByte()
+        val id = read8()
         val header = Header.fromId(id)
-        val length = readInt()
+        val length = read32()
         val buffer = ByteBuffer.allocate(length).order(LITTLE_ENDIAN)
         if (input.read(buffer) != buffer.capacity()) {
             throw IllegalArgumentException()
@@ -103,12 +104,12 @@ private class KdbxReader(private val input: ReadableByteChannel) {
         buffer.flip()
 
         when (header) {
+            Header.END -> return false
             Header.COMMENT -> return true
-            Header.END_OF_HEADER -> return false
-            Header.CIPHER_ID -> cipher = Cipher.fromUuidBuffer(buffer)
-            Header.MASTER_SEED -> masterSeed = ByteString.fromBuffer(buffer, 32)
-            Header.ENCRYPTION_IV -> encryptionIv = ByteString.fromBuffer(buffer)
-            Header.COMPRESSION_FLAGS -> compression = Compression.fromIdBuffer(buffer)
+            Header.COMPRESSION -> compression = Compression.fromIdBuffer(buffer)
+            Header.CIPHER -> cipher = Cipher.fromUuidBuffer(buffer)
+            Header.SEED -> seed = ByteString.fromBuffer(buffer, 32)
+            Header.IV -> iv = ByteString.fromBuffer(buffer)
             Header.KDF_PARAMETERS -> return true // TODO
             Header.PUBLIC_CUSTOM_DATA -> return true // TODO
             Header.PROTECTED_STREAM_KEY,
@@ -121,26 +122,22 @@ private class KdbxReader(private val input: ReadableByteChannel) {
         return true
     }
 
-    private fun readExpectingInt(expected: Int): Int {
-        val actual = readInt()
-        if (actual != expected) {
-            throw IllegalArgumentException()
-        }
-        return actual
-    }
-
-    private fun readByte(): Byte {
+    private fun read8(): Byte {
         val buffer = ByteBuffer.allocate(1).order(LITTLE_ENDIAN)
         input.read(buffer)
         buffer.flip()
         return buffer.get()
     }
 
-    private fun readInt(): Int {
+    private fun read32(validate: ((Int) -> Boolean)? = null): Int {
         val buffer = ByteBuffer.allocate(4).order(LITTLE_ENDIAN)
         input.read(buffer)
         buffer.flip()
-        return buffer.int
+        val value = buffer.int
+        if (validate != null && !validate(value)) {
+            throw IllegalArgumentException(Integer.toHexString(value.toInt()))
+        }
+        return value
     }
 }
 
@@ -151,18 +148,30 @@ internal data class Kdbx(
     val headers: Headers
 ) {
     internal data class Headers(
-        val cipher: Cipher?,
         val compression: Compression?,
-        val masterSeed: ByteString?,
-        var encryptionIv: ByteString?
+        val cipher: Cipher?,
+        val seed: ByteString?,
+        var iv: ByteString?
     )
-}
 
-internal fun kdbxRead(input: ReadableByteChannel): Kdbx {
-    val reader = KdbxReader(input)
-    val signature1 = reader.readSignature1()
-    val signature2 = reader.readSignature2()
-    val version = reader.readVersion()
-    val headers = reader.readHeaders()
-    return Kdbx(signature1, signature2, version, headers)
+    companion object {
+        internal const val SIGNATURE_1: Int = 0x9aa2d903.toInt()
+        internal const val SIGNATURE_2: Int = 0xb54bfb67.toInt()
+        internal const val FILE_VERSION_MAJOR_MASK: Int = 0xffff0000.toInt()
+        internal const val FILE_VERSION_4: Int = 0x00040000
+
+        internal fun read(input: ReadableByteChannel): Kdbx {
+            val reader = KdbxReader(input)
+            val signature1 = reader.readSignature1()
+            val signature2 = reader.readSignature2()
+            val version = reader.readVersion()
+            val headers = reader.readHeaders()
+            return Kdbx(
+                signature1,
+                signature2,
+                version,
+                headers
+            )
+        }
+    }
 }

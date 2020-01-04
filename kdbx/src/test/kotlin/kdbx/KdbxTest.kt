@@ -10,16 +10,16 @@ class KdbxTest {
     fun readsDatabase() {
 
         KdbxTest::class.java.getResourceAsStream("test.kdbx").use {
-            val db = kdbxRead(Channels.newChannel(it))
-            assertEquals("9aa2d903", Integer.toHexString(db.signature1))
-            assertEquals("b54bfb67", Integer.toHexString(db.signature2))
-            assertEquals("40000", Integer.toHexString(db.version))
+            val db = Kdbx.read(Channels.newChannel(it))
+            assertEquals(0x9aa2d903, Integer.toUnsignedLong(db.signature1))
+            assertEquals(0xb54bfb67, Integer.toUnsignedLong(db.signature2))
+            assertEquals(0x00040000, db.version)
             assertEquals(
                 Kdbx.Headers(
-                    cipher = Cipher.AES256,
                     compression = Compression.GZIP,
-                    encryptionIv = null,
-                    masterSeed = null
+                    cipher = Cipher.AES256,
+                    seed = null,
+                    iv = null
                 ),
                 db.headers
             )
