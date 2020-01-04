@@ -10,51 +10,69 @@ private const val SIGNATURE_1: Int = -1700603645 // 0x9AA2D903
 private const val SIGNATURE_2: Int = -1253311641 // 0xB54BFB67
 private const val VERSION_4: Int = 0x00040000
 
-private val ciphers = Cipher.values()
-private val headers = Header.values()
-private val compressions = Compression.values()
-
 private enum class Header {
-    // The ordinal of each value is also their corresponding ID
-    /*  0 */ END_OF_HEADER,
-    /*  1 */ COMMENT,
-    /*  2 */ CIPHER_ID,
-    /*  3 */ COMPRESSION_FLAGS,
-    /*  4 */ MASTER_SEED,
-    /*  5 */ TRANSFORM_SEED,
-    /*  6 */ TRANSFORM_ROUNDS,
-    /*  7 */ ENCRYPTION_IV,
-    /*  8 */ PROTECTED_STREAM_KEY,
-    /*  9 */ STREAM_START_BYTES,
-    /* 10 */ INNER_RANDOM_STREAM_ID,
-    /* 11 */ KDF_PARAMETERS,
-    /* 12 */ PUBLIC_CUSTOM_DATA,
+    END_OF_HEADER,
+    COMMENT,
+    CIPHER_ID,
+    COMPRESSION_FLAGS,
+    MASTER_SEED,
+    TRANSFORM_SEED,
+    TRANSFORM_ROUNDS,
+    ENCRYPTION_IV,
+    PROTECTED_STREAM_KEY,
+    STREAM_START_BYTES,
+    INNER_RANDOM_STREAM_ID,
+    KDF_PARAMETERS,
+    PUBLIC_CUSTOM_DATA;
+
+    companion object {
+        private val values = values()
+
+        // The ordinal of each value is also their corresponding ID
+        fun fromId(id: Byte): Header = values.getOrNull(id.toInt())
+            ?: throw IllegalArgumentException(id.toString())
+    }
 }
 
 internal enum class Compression {
-    // The ordinal of each value is also their corresponding ID
-    /* 0 */ NONE,
-    /* 1 */ GZIP,
+    NONE,
+    GZIP;
+
+    companion object {
+        private val values = values()
+
+        // The ordinal of each value is also their corresponding ID
+        private fun fromId(id: Int) = values.getOrNull(id)
+            ?: throw IllegalArgumentException(id.toString())
+
+        fun fromIdBuffer(buffer: ByteBuffer): Compression = when {
+            buffer.remaining() != 4 -> throw IllegalArgumentException()
+            else -> fromId(buffer.int)
+        }
+    }
 }
 
-internal enum class Cipher(val uuid: UUID) {
-    AES128(UUID.fromString("61ab05a1-9464-41c3-8d74-3a563df8dd35")),
-    AES256(UUID.fromString("31c1f2e6-bf71-4350-be58-05216afc5aff")),
-    TWOFISH(UUID.fromString("ad68f29f-576f-4bb9-a36a-d47af965346c")),
-    CHACHA20(UUID.fromString("d6038a2b-8b6f-4cb5-a524-339a31dbb59a")),
-}
+internal enum class Cipher(uuidStr: String) {
+    AES128("61ab05a1-9464-41c3-8d74-3a563df8dd35"),
+    AES256("31c1f2e6-bf71-4350-be58-05216afc5aff"),
+    TWOFISH("ad68f29f-576f-4bb9-a36a-d47af965346c"),
+    CHACHA20("d6038a2b-8b6f-4cb5-a524-339a31dbb59a");
 
-internal class ByteString private constructor(
-    private val array: ByteArray
-) {
-    constructor(buf: ByteBuffer) : this(
-        ByteArray(buf.remaining()).apply { buf.get(this) }
-    )
+    val uuid = UUID.fromString(uuidStr)
 
-    override fun toString() = Base64.getEncoder().encodeToString(array)
-    override fun hashCode() = array.contentHashCode()
-    override fun equals(other: Any?) =
-        other is ByteString && array.contentEquals(other.array)
+    companion object {
+        private val values = values()
+
+        private fun fromUuid(uuid: UUID) = values.find { it.uuid == uuid }
+            ?: throw IllegalArgumentException(uuid.toString())
+
+        fun fromUuidBuffer(buffer: ByteBuffer): Cipher = when {
+            buffer.remaining() != 16 -> throw IllegalArgumentException()
+            else -> fromUuid(buffer.order(BIG_ENDIAN).run {
+                UUID(buffer.long, buffer.long)
+            })
+        }
+    }
 }
 
 private class KdbxReader(private val input: ReadableByteChannel) {
@@ -75,11 +93,7 @@ private class KdbxReader(private val input: ReadableByteChannel) {
 
     private fun readHeader(): Boolean {
         val id = readByte()
-        if (id < 0 || id >= headers.size) {
-            throw IllegalArgumentException()
-        }
-
-        val header = headers[java.lang.Byte.toUnsignedInt(id)]
+        val header = Header.fromId(id)
         val length = readInt()
         val buffer = ByteBuffer.allocate(length).order(LITTLE_ENDIAN)
         if (input.read(buffer) != buffer.capacity()) {
@@ -91,52 +105,20 @@ private class KdbxReader(private val input: ReadableByteChannel) {
         when (header) {
             Header.COMMENT -> return true
             Header.END_OF_HEADER -> return false
-            Header.CIPHER_ID -> setCipher(buffer)
-            Header.COMPRESSION_FLAGS -> setCompression(buffer)
-            Header.MASTER_SEED -> setMasterSeed(buffer)
-            Header.ENCRYPTION_IV -> setEncryptionIv(buffer)
+            Header.CIPHER_ID -> cipher = Cipher.fromUuidBuffer(buffer)
+            Header.MASTER_SEED -> masterSeed = ByteString.fromBuffer(buffer, 32)
+            Header.ENCRYPTION_IV -> encryptionIv = ByteString.fromBuffer(buffer)
+            Header.COMPRESSION_FLAGS -> compression = Compression.fromIdBuffer(buffer)
             Header.KDF_PARAMETERS -> return true // TODO
             Header.PUBLIC_CUSTOM_DATA -> return true // TODO
             Header.PROTECTED_STREAM_KEY,
             Header.TRANSFORM_ROUNDS,
             Header.TRANSFORM_SEED,
             Header.STREAM_START_BYTES,
-            Header.INNER_RANDOM_STREAM_ID -> throw IllegalArgumentException()
+            Header.INNER_RANDOM_STREAM_ID ->
+                throw IllegalArgumentException(header.toString())
         }
         return true
-    }
-
-    private fun setCipher(buffer: ByteBuffer) {
-        if (buffer.remaining() != 16) {
-            throw IllegalArgumentException()
-        }
-        val uuid = buffer.order(BIG_ENDIAN).run {
-            UUID(buffer.long, buffer.long)
-        }
-        cipher = ciphers.find { it.uuid == uuid }
-            ?: throw IllegalArgumentException()
-    }
-
-    private fun setCompression(buffer: ByteBuffer) {
-        if (buffer.remaining() != 4) {
-            throw IllegalArgumentException()
-        }
-        val value = buffer.int
-        if (value < 0 || value >= compressions.size) {
-            throw IllegalArgumentException()
-        }
-        compression = compressions[value]
-    }
-
-    private fun setMasterSeed(buffer: ByteBuffer) {
-        if (buffer.remaining() != 32) {
-            throw IllegalArgumentException()
-        }
-        masterSeed = ByteString(buffer)
-    }
-
-    private fun setEncryptionIv(buffer: ByteBuffer) {
-        encryptionIv = ByteString(buffer)
     }
 
     private fun readExpectingInt(expected: Int): Int {
