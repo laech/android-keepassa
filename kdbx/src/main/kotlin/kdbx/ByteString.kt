@@ -1,13 +1,12 @@
 package kdbx
 
 import java.nio.ByteBuffer
-import java.util.*
 
 internal class ByteString private constructor(
     private val array: ByteArray
 ) {
     override fun toString(): String =
-        Base64.getEncoder().encodeToString(array)
+        array.joinToString("") { "%02x".format(it) }
 
     override fun hashCode() = array.contentHashCode()
 
