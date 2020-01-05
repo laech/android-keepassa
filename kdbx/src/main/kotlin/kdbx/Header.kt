@@ -37,10 +37,7 @@ internal data class Headers(
             val valueBuffer = ByteBuffer.allocate(length)
                 .order(LITTLE_ENDIAN)
 
-            if (input.read(valueBuffer) != valueBuffer.capacity()) {
-                throw IllegalArgumentException()
-            }
-
+            input.readFully(valueBuffer)
             valueBuffer.flip()
             builder[header] = header.decode(valueBuffer)
             return true
