@@ -1,7 +1,7 @@
 package kdbx
 
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
+import java.nio.ByteOrder.BIG_ENDIAN
 import java.util.*
 
 internal enum class Cipher(uuidStr: String) {
@@ -20,7 +20,7 @@ internal enum class Cipher(uuidStr: String) {
 
         fun fromUuidBuffer(buffer: ByteBuffer): Cipher = when {
             buffer.remaining() != 16 -> throw IllegalArgumentException()
-            else -> fromUuid(buffer.order(ByteOrder.BIG_ENDIAN).run {
+            else -> fromUuid(buffer.order(BIG_ENDIAN).run { // TODO Fix endianess
                 UUID(buffer.long, buffer.long)
             })
         }
