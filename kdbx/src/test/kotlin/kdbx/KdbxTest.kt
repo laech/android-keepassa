@@ -19,7 +19,8 @@ class KdbxTest {
                     compression = Compression.GZIP,
                     cipher = Cipher.AES256,
                     seed = null,
-                    iv = null
+                    iv = null,
+                    publicCustomData = null
                 ),
                 db.headers
             )
