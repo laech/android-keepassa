@@ -14,12 +14,7 @@ internal class ByteString private constructor(
         other is ByteString && array.contentEquals(other.array)
 
     companion object {
-        fun fromBuffer(buf: ByteBuffer, expectedSize: Int = buf.remaining()) = when {
-            expectedSize != buf.remaining() ->
-                throw IllegalArgumentException(
-                    "buffer.remaining=${buf.remaining()}, expectedSize=$expectedSize"
-                )
-            else -> ByteString(ByteArray(buf.remaining()).apply { buf.get(this) })
-        }
+        fun from(buf: ByteBuffer) =
+            ByteString(ByteArray(buf.remaining()).apply { buf.get(this) })
     }
 }

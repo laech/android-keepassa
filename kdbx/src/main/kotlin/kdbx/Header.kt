@@ -1,8 +1,11 @@
 package kdbx
 
 import java.nio.ByteBuffer
+import java.nio.ByteOrder.BIG_ENDIAN
 import java.nio.ByteOrder.LITTLE_ENDIAN
 import java.nio.channels.ReadableByteChannel
+import java.util.*
+import kotlin.collections.HashMap
 import kotlin.experimental.and
 
 internal data class Headers(
@@ -24,26 +27,17 @@ internal data class Headers(
         }
 
         private fun readSingle(
-            input: ReadableByteChannel,
+            channel: ReadableByteChannel,
             builder: VariantMap.Builder
         ): Boolean {
 
-            val header = Header.of(input.read8())
+            val header = Header.of(channel.read8())
             if (header == Header.EndOfHeader) {
                 return false
             }
 
-            val length = input.read32le()
-            val valueBuffer = ByteBuffer.allocate(length)
-                .order(LITTLE_ENDIAN)
-
-            input.readFully(valueBuffer)
-            valueBuffer.flip()
-            builder[header] = header.decode(
-                valueBuffer
-                    .asReadOnlyBuffer()
-                    .order(valueBuffer.order())
-            )
+            val length = channel.read32le()
+            builder[header] = header.read(channel, length)
             return true
         }
 
@@ -60,30 +54,49 @@ internal data class Headers(
 
 internal sealed class Header<out T>(
     private val id: Byte,
-    private val decoder: (ByteBuffer) -> T = {
-        throw UnsupportedOperationException()
-    }
+    private val reader: (ReadableByteChannel, Int) -> T
 ) : VariantMap.Key<T> {
 
-    fun decode(buffer: ByteBuffer): T = decoder(buffer)
+    fun read(channel: ReadableByteChannel, length: Int): T =
+        reader(channel, length)
 
     override fun toString(): String = javaClass.simpleName
 
-    object EndOfHeader : Header<Unit>(0)
-    object Comment : Header<Unit>(1)
-
-    object Cipher :
-        Header<kdbx.Cipher>(2, kdbx.Cipher.Companion::fromUuidBuffer)
-
-    object Compression :
-        Header<kdbx.Compression>(3, kdbx.Compression.Companion::fromIdBuffer)
-
-    object MasterSeed : Header<ByteString>(4, {
-        ByteString.fromBuffer(it, 32)
+    object EndOfHeader : Header<Unit>(0, { channel, length ->
+        channel.readFully(length, LITTLE_ENDIAN)
     })
 
-    object EncryptionIv : Header<ByteString>(7, {
-        ByteString.fromBuffer(it)
+    object Comment : Header<Unit>(1, { channel, length ->
+        channel.readFully(length, LITTLE_ENDIAN)
+    })
+
+    object Cipher : Header<kdbx.Cipher>(2, { channel, length ->
+        if (length != 16) {
+            throw IllegalArgumentException(length.toString())
+        }
+        val buffer = channel.readFully(length, BIG_ENDIAN)
+        kdbx.Cipher.from(UUID(buffer.long, buffer.long))
+    })
+
+    object Compression : Header<kdbx.Compression>(3, { channel, length ->
+        if (length != 4) {
+            throw IllegalArgumentException(length.toString())
+        }
+        val buffer = channel.readFully(length, LITTLE_ENDIAN)
+        kdbx.Compression.from(buffer.int)
+    })
+
+    object MasterSeed : Header<ByteString>(4, { channel, length ->
+        if (length != 32) {
+            throw IllegalArgumentException(length.toString())
+        }
+        val buffer = channel.readFully(length, LITTLE_ENDIAN)
+        ByteString.from(buffer)
+    })
+
+    object EncryptionIv : Header<ByteString>(7, { channel, length ->
+        val buffer = channel.readFully(length, LITTLE_ENDIAN)
+        ByteString.from(buffer)
     })
 
     object KdfParameters : Header<Map<String, Any>>(11, ::readVariants)
@@ -109,7 +122,11 @@ internal sealed class Header<out T>(
     }
 }
 
-private fun readVariants(buffer: ByteBuffer): Map<String, Any> {
+private fun readVariants(
+    channel: ReadableByteChannel,
+    length: Int
+): Map<String, Any> {
+    val buffer = channel.readFully(length, LITTLE_ENDIAN)
     val version = buffer.short.and(Kdbx.VARIANT_VERSION_MAJOR_MASK)
     val maxVersion =
         Kdbx.VARIANT_VERSION.and(Kdbx.VARIANT_VERSION_MAJOR_MASK)
@@ -154,7 +171,7 @@ private fun readVariant(
         Variant.INT64,
         Variant.UINT64 -> valueBuffer.long
         Variant.STRING -> String(valueArray, Charsets.UTF_8)
-        Variant.BYTE_ARRAY -> ByteString.fromBuffer(valueBuffer)
+        Variant.BYTE_ARRAY -> ByteString.from(valueBuffer)
         Variant.End -> return false
     }
 
