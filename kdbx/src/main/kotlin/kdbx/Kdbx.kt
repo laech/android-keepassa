@@ -1,6 +1,5 @@
 package kdbx
 
-import java.nio.BufferUnderflowException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder.BIG_ENDIAN
 import java.nio.ByteOrder.LITTLE_ENDIAN
@@ -80,46 +79,56 @@ internal enum class VariantField(private val id: Byte) {
     UINT32(0x04),
     UINT64(0x05),
     BOOL(0x08),
-    INT32(0x0C),
-    INT64(0x0D),
+    INT32(0x0c),
+    INT64(0x0d),
     STRING(0x18),
     BYTE_ARRAY(0x42);
 
     companion object {
         private val values = values().toList().sortedBy(VariantField::id)
 
-        fun fromId(id: Byte): VariantField =
-            values.getOrNull(values.binarySearch { id - it.id })
-                ?: throw IllegalArgumentException(id.toString())
+        fun fromId(id: Byte): VariantField = values.find { it.id == id }
+            ?: throw IllegalArgumentException(id.toString())
     }
 }
 
-private class KdbxReader(private val input: ReadableByteChannel) {
+private class KdbxReader {
 
     private var compression: Compression? = null
     private var cipher: Cipher? = null
     private var seed: ByteString? = null
     private var iv: ByteString? = null
+    private var kdf: Map<String, Any>? = null
     private var publicCustomData: Map<String, Any>? = null
 
-    internal fun readSignature1(): Int = read32 { it == Kdbx.SIGNATURE_1 }
-    internal fun readSignature2(): Int = read32 { it == Kdbx.SIGNATURE_2 }
+    internal fun readSignature1(input: ReadableByteChannel): Int =
+        read32(input) { it == Kdbx.SIGNATURE_1 }
 
-    internal fun readVersion(): Int = read32 {
+    internal fun readSignature2(input: ReadableByteChannel): Int =
+        read32(input) { it == Kdbx.SIGNATURE_2 }
+
+    internal fun readVersion(input: ReadableByteChannel): Int = read32(input) {
         it.and(Kdbx.FILE_VERSION_MAJOR_MASK) == Kdbx.FILE_VERSION_4
     }
 
-    internal fun readHeaders(): Kdbx.Headers {
-        while (readHeader()) {
+    internal fun readHeaders(input: ReadableByteChannel): Kdbx.Headers {
+        while (readHeader(input)) {
             // continue
         }
-        return Kdbx.Headers(compression, cipher, seed, iv, publicCustomData)
+        return Kdbx.Headers(
+            compression,
+            cipher,
+            seed,
+            iv,
+            kdf,
+            publicCustomData
+        )
     }
 
-    private fun readHeader(): Boolean {
-        val id = read8()
+    private fun readHeader(input: ReadableByteChannel): Boolean {
+        val id = read8(input)
         val header = Header.fromId(id)
-        val length = read32()
+        val length = read32(input)
         val buffer = ByteBuffer.allocate(length).order(LITTLE_ENDIAN)
         if (input.read(buffer) != buffer.capacity()) {
             throw IllegalArgumentException()
@@ -134,8 +143,8 @@ private class KdbxReader(private val input: ReadableByteChannel) {
             Header.CIPHER -> cipher = Cipher.fromUuidBuffer(buffer)
             Header.SEED -> seed = ByteString.fromBuffer(buffer, 32)
             Header.IV -> iv = ByteString.fromBuffer(buffer)
-            Header.KDF_PARAMETERS -> return true // TODO
-            Header.PUBLIC_CUSTOM_DATA -> publicCustomData = readVariants()
+            Header.KDF_PARAMETERS -> kdf = readVariants(buffer) // TODO
+            Header.PUBLIC_CUSTOM_DATA -> publicCustomData = readVariants(buffer)
             Header.PROTECTED_STREAM_KEY,
             Header.TRANSFORM_ROUNDS,
             Header.TRANSFORM_SEED,
@@ -146,69 +155,70 @@ private class KdbxReader(private val input: ReadableByteChannel) {
         return true
     }
 
-    private fun readVariants(): Map<String, Any> {
-        val version = read16().and(Kdbx.VARIANT_VERSION_MAJOR_MASK)
+    private fun readVariants(buffer: ByteBuffer): Map<String, Any> {
+        val version = buffer.short.and(Kdbx.VARIANT_VERSION_MAJOR_MASK)
         val maxVersion =
             Kdbx.VARIANT_VERSION.and(Kdbx.VARIANT_VERSION_MAJOR_MASK)
         if (version > maxVersion) {
-            throw IllegalArgumentException("Unsupported version $version")
+            throw IllegalArgumentException(
+                "Unsupported version 0x${Integer.toHexString(
+                    java.lang.Short.toUnsignedInt(
+                        version
+                    )
+                )}"
+            )
         }
 
         val variants = HashMap<String, Any>()
-        while (readVariant(variants)) {
+        while (readVariant(buffer, variants)) {
             // continue
         }
         return variants
     }
 
-    private fun readVariant(variants: MutableMap<String, Any>): Boolean {
-        val type = VariantField.fromId(read8())
+    private fun readVariant(
+        input: ByteBuffer,
+        variants: MutableMap<String, Any>
+    ): Boolean {
+        val type = VariantField.fromId(input.get())
         if (type == VariantField.End) {
             return false
         }
 
-        val name = readUtf8(read32())
-        val buffer = ByteBuffer.allocate(read32()).order(LITTLE_ENDIAN)
-        if (input.read(buffer) != buffer.capacity()) {
-            throw IllegalArgumentException()
+        val name = ByteArray(input.int).run {
+            input.get(this)
+            String(this, UTF_8)
         }
-        buffer.flip()
 
-        val value = when (type) {
-            VariantField.BOOL -> buffer.get() != 0.toByte()
+        val valueArray = ByteArray(input.int)
+        val valueBuffer = ByteBuffer.wrap(valueArray)
+        input.get(valueArray);
+
+        variants[name] = when (type) {
+            VariantField.BOOL -> valueBuffer.get() != 0.toByte()
             VariantField.INT32,
-            VariantField.UINT32 -> buffer.int
+            VariantField.UINT32 -> valueBuffer.int
             VariantField.INT64,
-            VariantField.UINT64 -> buffer.long
-            VariantField.STRING -> String(buffer.array(), UTF_8)
-            VariantField.BYTE_ARRAY -> buffer.array()
+            VariantField.UINT64 -> valueBuffer.long
+            VariantField.STRING -> String(valueArray, UTF_8)
+            VariantField.BYTE_ARRAY -> ByteString.fromBuffer(valueBuffer)
             VariantField.End -> return false
         }
-
-        variants[name] = value
 
         return true
     }
 
-    private fun read8(): Byte {
+    private fun read8(input: ReadableByteChannel): Byte {
         val buffer = ByteBuffer.allocate(1).order(LITTLE_ENDIAN)
         input.read(buffer)
         buffer.flip()
         return buffer.get()
     }
 
-    private fun read16(validate: ((Short) -> Boolean)? = null): Short {
-        val buffer = ByteBuffer.allocate(2).order(LITTLE_ENDIAN)
-        input.read(buffer)
-        buffer.flip()
-        val value = buffer.short
-        if (validate != null && !validate(value)) {
-            throw IllegalArgumentException(Integer.toHexString(value.toInt()))
-        }
-        return value
-    }
-
-    private fun read32(validate: ((Int) -> Boolean)? = null): Int {
+    private fun read32(
+        input: ReadableByteChannel,
+        validate: ((Int) -> Boolean)? = null
+    ): Int {
         val buffer = ByteBuffer.allocate(4).order(LITTLE_ENDIAN)
         input.read(buffer)
         buffer.flip()
@@ -217,14 +227,6 @@ private class KdbxReader(private val input: ReadableByteChannel) {
             throw IllegalArgumentException(Integer.toHexString(value.toInt()))
         }
         return value
-    }
-
-    private fun readUtf8(length: Int): String {
-        val array = ByteArray(length)
-        if (input.read(ByteBuffer.wrap(array)) != length) {
-            throw BufferUnderflowException()
-        }
-        return String(array, UTF_8)
     }
 }
 
@@ -239,7 +241,8 @@ internal data class Kdbx(
         val cipher: Cipher?,
         val seed: ByteString?,
         var iv: ByteString?,
-        var publicCustomData: Map<String, Any>?
+        val kdf: Map<String, Any>?,
+        val publicCustomData: Map<String, Any>?
     )
 
     companion object {
@@ -251,11 +254,11 @@ internal data class Kdbx(
         internal const val VARIANT_VERSION: Short = 0x0100
 
         internal fun read(input: ReadableByteChannel): Kdbx {
-            val reader = KdbxReader(input)
-            val signature1 = reader.readSignature1()
-            val signature2 = reader.readSignature2()
-            val version = reader.readVersion()
-            val headers = reader.readHeaders()
+            val reader = KdbxReader()
+            val signature1 = reader.readSignature1(input)
+            val signature2 = reader.readSignature2(input)
+            val version = reader.readVersion(input)
+            val headers = reader.readHeaders(input)
             return Kdbx(
                 signature1,
                 signature2,

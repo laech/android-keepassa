@@ -20,6 +20,7 @@ class KdbxTest {
                     cipher = Cipher.AES256,
                     seed = null,
                     iv = null,
+                    kdf = null,
                     publicCustomData = null
                 ),
                 db.headers
