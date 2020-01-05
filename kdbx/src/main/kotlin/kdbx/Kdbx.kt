@@ -1,96 +1,10 @@
 package kdbx
 
 import java.nio.ByteBuffer
-import java.nio.ByteOrder.BIG_ENDIAN
 import java.nio.ByteOrder.LITTLE_ENDIAN
 import java.nio.channels.ReadableByteChannel
-import java.util.*
-import kotlin.collections.HashMap
 import kotlin.experimental.and
 import kotlin.text.Charsets.UTF_8
-
-private enum class Header {
-    END,
-    COMMENT,
-    CIPHER,
-    COMPRESSION,
-    SEED,
-    TRANSFORM_SEED,
-    TRANSFORM_ROUNDS,
-    IV,
-    PROTECTED_STREAM_KEY,
-    STREAM_START_BYTES,
-    INNER_RANDOM_STREAM_ID,
-    KDF_PARAMETERS,
-    PUBLIC_CUSTOM_DATA;
-
-    companion object {
-        private val values = values()
-
-        // The ordinal of each value is also their corresponding ID
-        fun fromId(id: Byte): Header = values.getOrNull(id.toInt())
-            ?: throw IllegalArgumentException(id.toString())
-    }
-}
-
-internal enum class Compression {
-    NONE,
-    GZIP;
-
-    companion object {
-        private val values = values()
-
-        // The ordinal of each value is also their corresponding ID
-        private fun fromId(id: Int) = values.getOrNull(id)
-            ?: throw IllegalArgumentException(id.toString())
-
-        fun fromIdBuffer(buffer: ByteBuffer): Compression = when {
-            buffer.remaining() != 4 -> throw IllegalArgumentException()
-            else -> fromId(buffer.int)
-        }
-    }
-}
-
-internal enum class Cipher(uuidStr: String) {
-    AES128("61ab05a1-9464-41c3-8d74-3a563df8dd35"),
-    AES256("31c1f2e6-bf71-4350-be58-05216afc5aff"),
-    TWOFISH("ad68f29f-576f-4bb9-a36a-d47af965346c"),
-    CHACHA20("d6038a2b-8b6f-4cb5-a524-339a31dbb59a");
-
-    val uuid = UUID.fromString(uuidStr)
-
-    companion object {
-        private val values = values()
-
-        private fun fromUuid(uuid: UUID) = values.find { it.uuid == uuid }
-            ?: throw IllegalArgumentException(uuid.toString())
-
-        fun fromUuidBuffer(buffer: ByteBuffer): Cipher = when {
-            buffer.remaining() != 16 -> throw IllegalArgumentException()
-            else -> fromUuid(buffer.order(BIG_ENDIAN).run {
-                UUID(buffer.long, buffer.long)
-            })
-        }
-    }
-}
-
-internal enum class VariantField(private val id: Byte) {
-    End(0),
-    UINT32(0x04),
-    UINT64(0x05),
-    BOOL(0x08),
-    INT32(0x0c),
-    INT64(0x0d),
-    STRING(0x18),
-    BYTE_ARRAY(0x42);
-
-    companion object {
-        private val values = values().toList().sortedBy(VariantField::id)
-
-        fun fromId(id: Byte): VariantField = values.find { it.id == id }
-            ?: throw IllegalArgumentException(id.toString())
-    }
-}
 
 private class KdbxReader {
 
@@ -180,8 +94,8 @@ private class KdbxReader {
         input: ByteBuffer,
         variants: MutableMap<String, Any>
     ): Boolean {
-        val type = VariantField.fromId(input.get())
-        if (type == VariantField.End) {
+        val type = Variant.fromId(input.get())
+        if (type == Variant.End) {
             return false
         }
 
@@ -195,14 +109,14 @@ private class KdbxReader {
         input.get(valueArray);
 
         variants[name] = when (type) {
-            VariantField.BOOL -> valueBuffer.get() != 0.toByte()
-            VariantField.INT32,
-            VariantField.UINT32 -> valueBuffer.int
-            VariantField.INT64,
-            VariantField.UINT64 -> valueBuffer.long
-            VariantField.STRING -> String(valueArray, UTF_8)
-            VariantField.BYTE_ARRAY -> ByteString.fromBuffer(valueBuffer)
-            VariantField.End -> return false
+            Variant.BOOL -> valueBuffer.get() != 0.toByte()
+            Variant.INT32,
+            Variant.UINT32 -> valueBuffer.int
+            Variant.INT64,
+            Variant.UINT64 -> valueBuffer.long
+            Variant.STRING -> String(valueArray, UTF_8)
+            Variant.BYTE_ARRAY -> ByteString.fromBuffer(valueBuffer)
+            Variant.End -> return false
         }
 
         return true
