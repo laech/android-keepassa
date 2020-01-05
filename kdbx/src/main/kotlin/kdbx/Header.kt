@@ -39,7 +39,11 @@ internal data class Headers(
 
             input.readFully(valueBuffer)
             valueBuffer.flip()
-            builder[header] = header.decode(valueBuffer)
+            builder[header] = header.decode(
+                valueBuffer
+                    .asReadOnlyBuffer()
+                    .order(valueBuffer.order())
+            )
             return true
         }
 

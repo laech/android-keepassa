@@ -20,8 +20,8 @@ internal enum class Cipher(uuidStr: String) {
 
         fun fromUuidBuffer(buffer: ByteBuffer): Cipher = when {
             buffer.remaining() != 16 -> throw IllegalArgumentException()
-            else -> fromUuid(buffer.order(BIG_ENDIAN).run { // TODO Fix endianess
-                UUID(buffer.long, buffer.long)
+            else -> fromUuid(buffer.slice().order(BIG_ENDIAN).run {
+                UUID(long, long)
             })
         }
     }
