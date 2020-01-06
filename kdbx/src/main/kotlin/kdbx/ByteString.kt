@@ -13,6 +13,9 @@ internal class ByteString private constructor(
     override fun equals(other: Any?) =
         other is ByteString && array.contentEquals(other.array)
 
+    fun toReadonlyByteBuffer(): ByteBuffer =
+        ByteBuffer.wrap(array).asReadOnlyBuffer()
+
     companion object {
         fun from(buf: ByteBuffer) =
             ByteString(ByteArray(buf.remaining()).apply { buf.get(this) })

@@ -13,7 +13,7 @@ internal data class Headers(
     val cipher: Cipher?,
     val masterSeed: ByteString?,
     var encryptionIv: ByteString?,
-    val kdfParameters: Map<String, Any>?,
+    val kdfParameters: Kdf?,
     val publicCustomData: Map<String, Any>?
 ) {
     companion object {
@@ -99,7 +99,9 @@ internal sealed class Header<out T>(
         ByteString.from(buffer)
     })
 
-    object KdfParameters : Header<Map<String, Any>>(11, ::readVariants)
+    object KdfParameters : Header<Kdf>(11, { channel, length ->
+        Kdf.from(readVariants(channel, length))
+    })
 
     object PublicCustomData : Header<Map<String, Any>>(12, ::readVariants)
 
