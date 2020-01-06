@@ -5,6 +5,8 @@ import java.nio.ByteBuffer
 internal class ByteString private constructor(
     private val array: ByteArray
 ) {
+    val size: Int get() = array.size
+
     override fun toString(): String =
         array.joinToString("") { "%02x".format(it) }
 
