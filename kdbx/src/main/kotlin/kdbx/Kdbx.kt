@@ -2,19 +2,16 @@ package kdbx
 
 import java.nio.channels.ReadableByteChannel
 
-private class KdbxReader {
+private fun readSignature1(input: ReadableByteChannel): Int =
+    input.read32le { it == Kdbx.SIGNATURE_1 }
 
-    internal fun readSignature1(input: ReadableByteChannel): Int =
-        input.read32le { it == Kdbx.SIGNATURE_1 }
+private fun readSignature2(input: ReadableByteChannel): Int =
+    input.read32le { it == Kdbx.SIGNATURE_2 }
 
-    internal fun readSignature2(input: ReadableByteChannel): Int =
-        input.read32le { it == Kdbx.SIGNATURE_2 }
-
-    internal fun readVersion(input: ReadableByteChannel): Int = input.read32le {
-        it.and(Kdbx.FILE_VERSION_MAJOR_MASK) == Kdbx.FILE_VERSION_4
-    }
-
+private fun readVersion(input: ReadableByteChannel): Int = input.read32le {
+    it.and(Kdbx.FILE_VERSION_MAJOR_MASK) == Kdbx.FILE_VERSION_4
 }
+
 
 internal data class Kdbx(
     val signature1: Int,
@@ -31,10 +28,9 @@ internal data class Kdbx(
         internal const val VARIANT_VERSION: Short = 0x0100
 
         internal fun read(input: ReadableByteChannel): Kdbx {
-            val reader = KdbxReader()
-            val signature1 = reader.readSignature1(input)
-            val signature2 = reader.readSignature2(input)
-            val version = reader.readVersion(input)
+            val signature1 = readSignature1(input)
+            val signature2 = readSignature2(input)
+            val version = readVersion(input)
             val headers = Headers.read(input)
             return Kdbx(
                 signature1,
