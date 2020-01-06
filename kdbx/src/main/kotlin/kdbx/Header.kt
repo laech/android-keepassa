@@ -161,7 +161,7 @@ private fun readVariant(
     }
 
     val valueArray = ByteArray(input.int)
-    val valueBuffer = ByteBuffer.wrap(valueArray)
+    val valueBuffer = ByteBuffer.wrap(valueArray).order(input.order())
     input.get(valueArray)
 
     variants[name] = when (type) {
