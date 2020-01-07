@@ -1,9 +1,12 @@
 package kdbx
 
+import com.kosprov.jargon2.api.Jargon2
 import java.util.*
 import kotlin.NoSuchElementException
 
 internal sealed class Kdf {
+
+    abstract fun transform(password: ByteArray): ByteArray
 
     companion object {
         fun from(params: Map<String, Any>): Kdf =
@@ -37,6 +40,10 @@ internal sealed class Kdf {
             }
         }
 
+        override fun transform(password: ByteArray): ByteArray {
+            TODO("not implemented")
+        }
+
         companion object {
             internal val uuid = UUID.fromString(
                 "7c02bb82-79a7-4ac0-927d-114a00648238"
@@ -51,16 +58,15 @@ internal sealed class Kdf {
 
     // https://github.com/keepassxreboot/keepassxc/blob/2.5.1/src/crypto/kdf/Argon2Kdf.cpp
     data class Argon2(
-        val version: Int,
+        val version: Jargon2.Version,
         val salt: ByteString,
-        val memoryKb: Long,
-        val iterations: Long,
+        val memoryKb: Int,
+        val iterations: Int,
         val parallelism: Int
     ) : Kdf() {
 
         init {
             validateSalt()
-            validateVersion()
             validateMemory()
             validateParallelism()
             validateIterations()
@@ -90,32 +96,42 @@ internal sealed class Kdf {
             }
         }
 
-        private fun validateVersion() {
-            if (version !in 0x10..0x13) {
-                throw IllegalArgumentException("version=$version")
-            }
-        }
+        override fun transform(password: ByteArray): ByteArray = Jargon2
+            .jargon2Hasher()
+            .type(Jargon2.Type.ARGON2d)
+            .version(version)
+            .memoryCost(memoryKb)
+            .timeCost(iterations)
+            .salt(salt.toByteArray())
+            .password(password)
+            .rawHash()
 
         companion object {
+            private val versions = Jargon2.Version.values()
+
             internal val uuid = UUID.fromString(
                 "ef636ddf-8c29-444b-91f7-a9a403e30a0c"
             )
 
             fun from(params: Map<String, Any>) = Argon2(
                 salt = params.require("S"),
-                memoryKb = params.require<String, Long>("M") / 1024.toLong(),
-                version = params.require("V"),
-                iterations = params.require("I"),
-                parallelism = params.require("P")
+                memoryKb = (params.require<String, Long>("M") / 1024).toInt(),
+                iterations = params.require<String, Long>("I").toInt(),
+                parallelism = params.require("P"),
+                version = params.require<String, Int>("V").run {
+                    versions.find { it.value == this }
+                        ?: throw IllegalArgumentException("Unknown version $this")
+                }
             )
         }
     }
+
 }
 
 private inline fun <K, reified V> Map<K, Any?>.require(key: K): V =
     get(key).let {
         if (it == null) {
-            throw NoSuchElementException("key=$key")
+            throw NoSuchElementException(key.toString())
         }
         if (it !is V) {
             throw ClassCastException("Cannot cast ${it::class.java} to ${V::class.java}")

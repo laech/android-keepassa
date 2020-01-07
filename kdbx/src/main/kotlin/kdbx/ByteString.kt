@@ -18,6 +18,8 @@ internal class ByteString private constructor(
     fun toReadonlyByteBuffer(): ByteBuffer =
         ByteBuffer.wrap(array).asReadOnlyBuffer()
 
+    fun toByteArray(): ByteArray = array.clone()
+
     companion object {
         fun from(buf: ByteBuffer) =
             ByteString(ByteArray(buf.remaining()).apply { buf.get(this) })

@@ -10,9 +10,9 @@ import kotlin.experimental.and
 
 internal data class Headers(
     val compression: Compression?,
-    val cipher: Cipher?,
-    val masterSeed: ByteString?,
-    var encryptionIv: ByteString?,
+    val cipher: Cipher,
+    val masterSeed: ByteString,
+    var encryptionIv: ByteString,
     val kdfParameters: Kdf?,
     val publicCustomData: Map<String, Any>?
 ) {
@@ -43,9 +43,9 @@ internal data class Headers(
 
         private fun from(map: VariantMap) = Headers(
             compression = map[Header.Compression],
-            cipher = map[Header.Cipher],
-            masterSeed = map[Header.MasterSeed],
-            encryptionIv = map[Header.EncryptionIv],
+            cipher = map.require(Header.Cipher),
+            masterSeed = map.require(Header.MasterSeed),
+            encryptionIv = map.require(Header.EncryptionIv),
             kdfParameters = map[Header.KdfParameters],
             publicCustomData = map[Header.PublicCustomData]
         )

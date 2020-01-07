@@ -8,7 +8,7 @@ import java.nio.channels.ReadableByteChannel
 
 internal fun ReadableByteChannel.readFully(
     length: Int,
-    order: ByteOrder
+    order: ByteOrder // TODO does not make sense
 ): ByteBuffer {
     val buffer = ByteBuffer.allocate(length)
     readFully(buffer)

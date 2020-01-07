@@ -10,6 +10,10 @@ internal class VariantMap private constructor(
     @Suppress("UNCHECKED_CAST")
     operator fun <T> get(key: Key<T>): T? = map[key] as T?
 
+    @Suppress("UNCHECKED_CAST")
+    fun <T> require(key: Key<T>): T = get(key)
+        ?: throw NoSuchElementException(key.toString())
+
     override fun toString(): String = map.toString()
     override fun hashCode() = map.hashCode()
     override fun equals(other: Any?) =
