@@ -2,7 +2,6 @@ package kdbx
 
 import java.nio.ByteBuffer
 import java.nio.ByteOrder.LITTLE_ENDIAN
-import java.security.MessageDigest
 
 private fun readSignature1(buffer: ByteBuffer): Int =
     when (val value = buffer.int) {
@@ -30,16 +29,26 @@ internal data class Kdbx(
     val version: Int,
     val headers: Headers
 ) {
-    fun readDatabase(buffer: ByteBuffer, key: ByteArray) {
-        val finalKey = {
-            val digest = MessageDigest.getInstance("SHA-256")
-            digest.update(headers.masterSeed.toByteArray())
-            digest.update(headers.kdfParameters!!.transform(key))
-            digest.digest()
+    fun readDatabase(
+        buffer: ByteBuffer,
+        headerBuffer: ByteBuffer,
+        key: ByteArray
+    ) {
+        val finalKey = sha256(
+            headers.masterSeed.toByteArray(),
+            headers.kdfParameters!!.transform(key)
+        )
+        val expectedHeaderHash = buffer.getByteArray(32)
+        val actualHeaderHash = sha256(headerBuffer.getByteArray())
+        if (!expectedHeaderHash.contentEquals(actualHeaderHash)) {
+            throw IllegalArgumentException(
+                "Header SHA-256 mismatch" +
+                        ", expected ${expectedHeaderHash.toHexString()}" +
+                        ", got ${actualHeaderHash.toHexString()}"
+            )
         }
-        val sha256 = buffer.getAll(32)
-        val hmac = buffer.getAll(32)
 
+        val hmac = buffer.getByteArray(32)
     }
 
     companion object {
@@ -52,6 +61,7 @@ internal data class Kdbx(
 
         internal fun read(buffer: ByteBuffer, key: ByteArray): Kdbx =
             buffer.slice().order(LITTLE_ENDIAN).run {
+                mark()
                 val signature1 = readSignature1(this)
                 val signature2 = readSignature2(this)
                 val version = readVersion(this)
@@ -62,7 +72,11 @@ internal data class Kdbx(
                     version,
                     headers
                 )
-                kdbx.readDatabase(this, key)
+                val headerLength = position()
+                rewind()
+
+                val headerBuffer = getByteBuffer(headerLength)
+                kdbx.readDatabase(this, headerBuffer, key)
                 kdbx
             }
     }

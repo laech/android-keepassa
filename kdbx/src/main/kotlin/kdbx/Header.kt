@@ -30,13 +30,9 @@ internal data class Headers(
         ): Boolean {
 
             val header = Header.of(buffer.get())
-            if (header == Header.EndOfHeader) {
-                return false
-            }
-
-            val length = buffer.int
-            builder[header] = header.read(buffer.getAll(length))
-            return true
+            val value = header.read(buffer.getByteBuffer(buffer.int))
+            builder[header] = value
+            return header != Header.EndOfHeader
         }
 
         private fun from(map: VariantMap) = Headers(
