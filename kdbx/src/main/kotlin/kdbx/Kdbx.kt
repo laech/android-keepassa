@@ -1,17 +1,27 @@
 package kdbx
 
-import java.nio.ByteOrder.BIG_ENDIAN
-import java.nio.channels.ReadableByteChannel
+import java.nio.ByteBuffer
+import java.nio.ByteOrder.LITTLE_ENDIAN
 import java.security.MessageDigest
 
-private fun readSignature1(input: ReadableByteChannel): Int =
-    input.read32le { it == Kdbx.SIGNATURE_1 }
+private fun readSignature1(buffer: ByteBuffer): Int =
+    when (val value = buffer.int) {
+        Kdbx.SIGNATURE_1 -> value
+        else -> throw IllegalArgumentException("Unknown signature1: $value")
+    }
 
-private fun readSignature2(input: ReadableByteChannel): Int =
-    input.read32le { it == Kdbx.SIGNATURE_2 }
+private fun readSignature2(buffer: ByteBuffer): Int =
+    when (val value = buffer.int) {
+        Kdbx.SIGNATURE_2 -> value
+        else -> throw IllegalArgumentException("Unknown signature2: $value")
+    }
 
-private fun readVersion(input: ReadableByteChannel): Int = input.read32le {
-    it.and(Kdbx.FILE_VERSION_MAJOR_MASK) == Kdbx.FILE_VERSION_4
+private fun readVersion(buffer: ByteBuffer): Int {
+    val version = buffer.int
+    if (version.and(Kdbx.FILE_VERSION_MAJOR_MASK) == Kdbx.FILE_VERSION_4) {
+        return version
+    }
+    throw IllegalArgumentException("Unknown version: $version")
 }
 
 internal data class Kdbx(
@@ -20,15 +30,15 @@ internal data class Kdbx(
     val version: Int,
     val headers: Headers
 ) {
-    fun readDatabase(input: ReadableByteChannel, key: ByteArray) {
+    fun readDatabase(buffer: ByteBuffer, key: ByteArray) {
         val finalKey = {
             val digest = MessageDigest.getInstance("SHA-256")
             digest.update(headers.masterSeed.toByteArray())
             digest.update(headers.kdfParameters!!.transform(key))
             digest.digest()
         }
-        val sha256 = input.readFully(32, BIG_ENDIAN)
-        val hmac = input.readFully(32, BIG_ENDIAN)
+        val sha256 = buffer.getAll(32)
+        val hmac = buffer.getAll(32)
 
     }
 
@@ -40,19 +50,20 @@ internal data class Kdbx(
         internal const val VARIANT_VERSION_MAJOR_MASK: Short = 0xff00.toShort()
         internal const val VARIANT_VERSION: Short = 0x0100
 
-        internal fun read(input: ReadableByteChannel, key: ByteArray): Kdbx {
-            val signature1 = readSignature1(input)
-            val signature2 = readSignature2(input)
-            val version = readVersion(input)
-            val headers = Headers.read(input)
-            val kdbx = Kdbx(
-                signature1,
-                signature2,
-                version,
-                headers
-            )
-            kdbx.readDatabase(input, key)
-            return kdbx
-        }
+        internal fun read(buffer: ByteBuffer, key: ByteArray): Kdbx =
+            buffer.slice().order(LITTLE_ENDIAN).run {
+                val signature1 = readSignature1(this)
+                val signature2 = readSignature2(this)
+                val version = readVersion(this)
+                val headers = Headers.read(this)
+                val kdbx = Kdbx(
+                    signature1,
+                    signature2,
+                    version,
+                    headers
+                )
+                kdbx.readDatabase(this, key)
+                kdbx
+            }
     }
 }
