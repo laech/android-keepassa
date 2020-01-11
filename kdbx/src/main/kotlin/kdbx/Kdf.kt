@@ -1,6 +1,7 @@
 package kdbx
 
 import com.kosprov.jargon2.api.Jargon2
+import com.kosprov.jargon2.api.Jargon2.jargon2LowLevelApi
 import java.util.*
 import kotlin.NoSuchElementException
 
@@ -96,15 +97,17 @@ internal sealed class Kdf {
             }
         }
 
-        override fun transform(password: ByteArray): ByteArray = Jargon2
-            .jargon2Hasher()
-            .type(Jargon2.Type.ARGON2d)
-            .version(version)
-            .memoryCost(memoryKb)
-            .timeCost(iterations)
-            .salt(salt.toByteArray())
-            .password(password)
-            .rawHash()
+        override fun transform(password: ByteArray): ByteArray =
+            jargon2LowLevelApi().rawHash(
+                Jargon2.Type.ARGON2d,
+                version,
+                memoryKb,
+                iterations,
+                parallelism,
+                32,
+                salt.toByteArray(),
+                password
+            )
 
         companion object {
             private val versions = Jargon2.Version.values()

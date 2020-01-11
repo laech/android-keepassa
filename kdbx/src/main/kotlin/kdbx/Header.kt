@@ -11,7 +11,7 @@ internal data class Headers(
     val cipher: Cipher,
     val masterSeed: ByteString,
     var encryptionIv: ByteString,
-    val kdfParameters: Kdf?,
+    val kdf: Kdf,
     val publicCustomData: Map<String, Any>?
 ) {
     companion object {
@@ -40,7 +40,7 @@ internal data class Headers(
             cipher = map.require(Header.Cipher),
             masterSeed = map.require(Header.MasterSeed),
             encryptionIv = map.require(Header.EncryptionIv),
-            kdfParameters = map[Header.KdfParameters],
+            kdf = map.require(Header.KdfParameters),
             publicCustomData = map[Header.PublicCustomData]
         )
     }

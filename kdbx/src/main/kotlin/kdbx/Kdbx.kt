@@ -34,21 +34,42 @@ internal data class Kdbx(
         headerBuffer: ByteBuffer,
         key: ByteArray
     ) {
-        val finalKey = sha256(
-            headers.masterSeed.toByteArray(),
-            headers.kdfParameters!!.transform(key)
-        )
-        val expectedHeaderHash = buffer.getByteArray(32)
-        val actualHeaderHash = sha256(headerBuffer.getByteArray())
-        if (!expectedHeaderHash.contentEquals(actualHeaderHash)) {
+        val headerBytes = headerBuffer.getByteArray()
+
+        val headerHashExpected = buffer.getByteArray(32)
+        val headerHashActual = sha256(headerBytes)
+        if (!headerHashExpected.contentEquals(headerHashActual)) {
             throw IllegalArgumentException(
                 "Header SHA-256 mismatch" +
-                        ", expected ${expectedHeaderHash.toHexString()}" +
-                        ", got ${actualHeaderHash.toHexString()}"
+                        ", expected ${headerHashExpected.toHexString()}" +
+                        ", got ${headerHashActual.toHexString()}"
             )
         }
 
-        val hmac = buffer.getByteArray(32)
+        val headerMacExpected = buffer.getByteArray(32)
+        val headerMacActual = run {
+            val hmacKey = sha512(
+                ByteBuffer
+                    .allocate(Long.SIZE_BYTES)
+                    .order(LITTLE_ENDIAN)
+                    .putLong(-1L)
+                    .flip()
+                    .getByteArray(),
+                sha512(
+                    headers.masterSeed.toByteArray(),
+                    headers.kdf.transform(key),
+                    byteArrayOf(1)
+                )
+            )
+            hmacSha256(hmacKey, headerBytes)
+        }
+        if (!headerMacExpected.contentEquals(headerMacActual)) {
+            throw IllegalArgumentException(
+                "Header HMAC mismatch" +
+                        ", expected ${headerMacExpected.toHexString()}" +
+                        ", actual ${headerMacActual.toHexString()}"
+            ) // TODO bad credentials message
+        }
     }
 
     companion object {
@@ -59,9 +80,14 @@ internal data class Kdbx(
         internal const val VARIANT_VERSION_MAJOR_MASK: Short = 0xff00.toShort()
         internal const val VARIANT_VERSION: Short = 0x0100
 
-        internal fun read(buffer: ByteBuffer, key: ByteArray): Kdbx =
+        internal fun read(
+            buffer: ByteBuffer,
+            passwordHash: ByteArray?,
+            keyFileHash: ByteArray?
+        ): Kdbx =
             buffer.slice().order(LITTLE_ENDIAN).run {
                 mark()
+
                 val signature1 = readSignature1(this)
                 val signature2 = readSignature2(this)
                 val version = readVersion(this)
@@ -73,9 +99,15 @@ internal data class Kdbx(
                     headers
                 )
                 val headerLength = position()
+
                 rewind()
 
                 val headerBuffer = getByteBuffer(headerLength)
+                val key = sha256(
+                    *arrayOf(passwordHash, keyFileHash)
+                        .filterNotNull()
+                        .toTypedArray()
+                )
                 kdbx.readDatabase(this, headerBuffer, key)
                 kdbx
             }
