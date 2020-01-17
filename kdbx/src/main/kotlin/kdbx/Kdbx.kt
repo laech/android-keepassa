@@ -1,22 +1,27 @@
 package kdbx
 
-import java.nio.ByteBuffer
+import com.google.common.io.LittleEndianDataInputStream
+import java.io.BufferedInputStream
+import java.io.DataInput
+import java.io.IOException
+import java.io.InputStream
 import java.nio.ByteOrder.LITTLE_ENDIAN
+import java.util.*
 
-private fun readSignature1(buffer: ByteBuffer): Int =
-    when (val value = buffer.int) {
+private fun readSignature1(input: DataInput): Int =
+    when (val value = input.readInt()) {
         Kdbx.SIGNATURE_1 -> value
         else -> throw IllegalArgumentException("Unknown signature1: $value")
     }
 
-private fun readSignature2(buffer: ByteBuffer): Int =
-    when (val value = buffer.int) {
+private fun readSignature2(input: DataInput): Int =
+    when (val value = input.readInt()) {
         Kdbx.SIGNATURE_2 -> value
         else -> throw IllegalArgumentException("Unknown signature2: $value")
     }
 
-private fun readVersion(buffer: ByteBuffer): Int {
-    val version = buffer.int
+private fun readVersion(input: DataInput): Int {
+    val version = input.readInt()
     if (version.and(Kdbx.FILE_VERSION_MAJOR_MASK) == Kdbx.FILE_VERSION_4) {
         return version
     }
@@ -29,15 +34,13 @@ internal data class Kdbx(
     val version: Int,
     val headers: Headers
 ) {
-    fun readDatabase(
-        buffer: ByteBuffer,
-        headerBuffer: ByteBuffer,
+    private fun readDatabase(
+        data: LittleEndianDataInputStream,
+        headers: ByteArray,
         key: ByteArray
     ) {
-        val headerBytes = headerBuffer.getByteArray()
-
-        val headerHashExpected = buffer.getByteArray(32)
-        val headerHashActual = sha256(headerBytes)
+        val headerHashExpected = data.readFully(32)
+        val headerHashActual = sha256(headers)
         if (!headerHashExpected.contentEquals(headerHashActual)) {
             throw IllegalArgumentException(
                 "Header SHA-256 mismatch" +
@@ -46,23 +49,16 @@ internal data class Kdbx(
             )
         }
 
-        val headerMacExpected = buffer.getByteArray(32)
-        val headerMacActual = run {
-            val hmacKey = sha512(
-                ByteBuffer
-                    .allocate(Long.SIZE_BYTES)
-                    .order(LITTLE_ENDIAN)
-                    .putLong(-1L)
-                    .flip()
-                    .getByteArray(),
-                sha512(
-                    headers.masterSeed.toByteArray(),
-                    headers.kdf.transform(key),
-                    byteArrayOf(1)
-                )
+        val hmacKey = sha512(
+            (-1L).encode(LITTLE_ENDIAN),
+            sha512(
+                this.headers.masterSeed.toByteArray(),
+                this.headers.kdf.transform(key),
+                byteArrayOf(1)
             )
-            hmacSha256(hmacKey, headerBytes)
-        }
+        )
+        val headerMacExpected = data.readFully(32)
+        val headerMacActual = hmacSha256(hmacKey, headers)
         if (!headerMacExpected.contentEquals(headerMacActual)) {
             throw IllegalArgumentException(
                 "Header HMAC mismatch" +
@@ -81,35 +77,47 @@ internal data class Kdbx(
         internal const val VARIANT_VERSION: Short = 0x0100
 
         internal fun read(
-            buffer: ByteBuffer,
+            input: InputStream,
             passwordHash: ByteArray?,
             keyFileHash: ByteArray?
-        ): Kdbx =
-            buffer.slice().order(LITTLE_ENDIAN).run {
-                mark()
+        ): Kdbx {
+            val buffer = BufferingInputStream(input)
+            val data = LittleEndianDataInputStream(buffer)
+            buffer.mark(Int.MAX_VALUE)
 
-                val signature1 = readSignature1(this)
-                val signature2 = readSignature2(this)
-                val version = readVersion(this)
-                val headers = Headers.read(this)
-                val kdbx = Kdbx(
-                    signature1,
-                    signature2,
-                    version,
-                    headers
-                )
-                val headerLength = position()
+            val signature1 = readSignature1(data)
+            val signature2 = readSignature2(data)
+            val version = readVersion(data)
+            val headers = Headers.read(data)
+            val kdbx = Kdbx(
+                signature1,
+                signature2,
+                version,
+                headers
+            )
 
-                rewind()
+            val headerBytes = buffer.drainFromMark()
+            val key = sha256(
+                *arrayOf(passwordHash, keyFileHash)
+                    .filterNotNull()
+                    .toTypedArray()
+            )
+            kdbx.readDatabase(data, headerBytes, key)
+            return kdbx
+        }
+    }
+}
 
-                val headerBuffer = getByteBuffer(headerLength)
-                val key = sha256(
-                    *arrayOf(passwordHash, keyFileHash)
-                        .filterNotNull()
-                        .toTypedArray()
-                )
-                kdbx.readDatabase(this, headerBuffer, key)
-                kdbx
-            }
+private class BufferingInputStream(input: InputStream) :
+    BufferedInputStream(input) {
+
+    fun drainFromMark(): ByteArray {
+        if (markpos < 0) {
+            throw IOException("Mark not set")
+        }
+        val bytes = Arrays.copyOfRange(buf, markpos, pos)
+        reset()
+        skip(bytes.size.toLong())
+        return bytes
     }
 }

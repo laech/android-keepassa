@@ -1,7 +1,9 @@
 package kdbx
 
+import java.io.DataInput
 import java.nio.ByteBuffer
 import java.nio.ByteOrder.BIG_ENDIAN
+import java.nio.ByteOrder.LITTLE_ENDIAN
 import java.util.*
 import kotlin.collections.HashMap
 import kotlin.experimental.and
@@ -16,21 +18,29 @@ internal data class Headers(
 ) {
     companion object {
 
-        fun read(buffer: ByteBuffer): Headers {
+        fun read(input: DataInput): Headers {
             val map = VariantMap.Builder()
-            while (readSingle(buffer, map)) {
+            while (readSingle(input, map)) {
                 // continue
             }
             return from(map.build())
         }
 
         private fun readSingle(
-            buffer: ByteBuffer,
+            input: DataInput,
             builder: VariantMap.Builder
         ): Boolean {
 
-            val header = Header.of(buffer.get())
-            val value = header.read(buffer.getByteBuffer(buffer.int))
+            val headerId = input.readByte()
+            val valueLen = input.readInt()
+            val valueBuf = input.readFully(valueLen)
+
+            val header = Header.of(headerId)
+            val value = header.read(
+                ByteBuffer
+                    .wrap(valueBuf)
+                    .order(LITTLE_ENDIAN)
+            )
             builder[header] = value
             return header != Header.EndOfHeader
         }

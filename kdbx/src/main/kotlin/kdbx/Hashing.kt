@@ -16,6 +16,13 @@ private fun hash(algorithm: String, vararg inputs: ByteArray): ByteArray {
     return hasher.digest()
 }
 
+internal fun hmacSha256(key: ByteArray): Mac {
+    val algorithm = "HmacSHA256"
+    val hasher = Mac.getInstance(algorithm)
+    hasher.init(SecretKeySpec(key, algorithm))
+    return hasher
+}
+
 internal fun hmacSha256(key: ByteArray, vararg inputs: ByteArray): ByteArray {
     val algorithm = "HmacSHA256"
     val hasher = Mac.getInstance(algorithm)
