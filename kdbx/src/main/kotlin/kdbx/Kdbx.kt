@@ -50,15 +50,16 @@ internal data class Kdbx(
         }
 
         val hmacKey = sha512(
+            this.headers.masterSeed.toByteArray(),
+            this.headers.kdf.transform(key),
+            byteArrayOf(1)
+        )
+        val hmacKeySha = sha512(
             (-1L).encode(LITTLE_ENDIAN),
-            sha512(
-                this.headers.masterSeed.toByteArray(),
-                this.headers.kdf.transform(key),
-                byteArrayOf(1)
-            )
+            hmacKey
         )
         val headerMacExpected = data.readFully(32)
-        val headerMacActual = hmacSha256(hmacKey, headers)
+        val headerMacActual = hmacSha256(hmacKeySha, headers)
         if (!headerMacExpected.contentEquals(headerMacActual)) {
             throw IllegalArgumentException(
                 "Header HMAC mismatch" +
@@ -66,6 +67,8 @@ internal data class Kdbx(
                         ", actual ${headerMacActual.toHexString()}"
             ) // TODO bad credentials message
         }
+
+        HmacBlockInputStream(data, hmacKey).readAllBytes()
     }
 
     companion object {
