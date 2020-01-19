@@ -1,6 +1,5 @@
 package kdbx
 
-import com.google.common.io.LittleEndianDataInputStream
 import com.kosprov.jargon2.api.Jargon2
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -22,7 +21,7 @@ class KdbxTest {
             assertEquals(
                 Headers(
                     compression = Compression.GZIP,
-                    cipher = Cipher.AES256,
+                    cipher = Cipher.AES,
                     masterSeed = ByteString.from(ByteBuffer.allocate(0)),
                     encryptionIv = ByteString.from(ByteBuffer.allocate(0)),
                     kdf = Kdf.Argon2(

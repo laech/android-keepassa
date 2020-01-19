@@ -36,11 +36,13 @@ internal data class Kdbx(
 ) {
     private fun readDatabase(
         data: LittleEndianDataInputStream,
-        headers: ByteArray,
+        headerBytes: ByteArray,
         key: ByteArray
     ) {
         val headerHashExpected = data.readFully(32)
-        val headerHashActual = sha256(headers)
+        val headerMacExpected = data.readFully(32)
+
+        val headerHashActual = sha256(headerBytes)
         if (!headerHashExpected.contentEquals(headerHashActual)) {
             throw IllegalArgumentException(
                 "Header SHA-256 mismatch" +
@@ -49,17 +51,15 @@ internal data class Kdbx(
             )
         }
 
-        val hmacKey = sha512(
-            this.headers.masterSeed.toByteArray(),
-            this.headers.kdf.transform(key),
-            byteArrayOf(1)
-        )
+        val keyBuf = this.headers.masterSeed.toByteArray() +
+                this.headers.kdf.transform(key) +
+                byteArrayOf(1)
+        val hmacKey = sha512(keyBuf)
         val hmacKeySha = sha512(
             (-1L).encode(LITTLE_ENDIAN),
             hmacKey
         )
-        val headerMacExpected = data.readFully(32)
-        val headerMacActual = hmacSha256(hmacKeySha, headers)
+        val headerMacActual = hmacSha256(hmacKeySha, headerBytes)
         if (!headerMacExpected.contentEquals(headerMacActual)) {
             throw IllegalArgumentException(
                 "Header HMAC mismatch" +
@@ -68,7 +68,11 @@ internal data class Kdbx(
             ) // TODO bad credentials message
         }
 
-        HmacBlockInputStream(data, hmacKey).readAllBytes()
+        headers.cipher.decrypt(
+            HmacBlockInputStream(data, hmacKey),
+            sha256(keyBuf.copyOfRange(0, 64)),
+            headers.encryptionIv.toByteArray()
+        ).readAllBytes()
     }
 
     companion object {
