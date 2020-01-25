@@ -1,5 +1,6 @@
 package kdbx
 
+import com.google.common.collect.ImmutableList
 import com.google.common.collect.ImmutableMap
 import com.google.common.io.LittleEndianDataInputStream
 import java.io.DataInput
@@ -56,31 +57,30 @@ private val unitParser: Parser<Any, Unit> = {}
 
 private typealias BufferParser<T> = Parser<ByteBuffer, T>
 
-private val bufferGetByte: BufferParser<Byte> = ByteBuffer::get
-
-private val bufferGetShort: BufferParser<Short> = ByteBuffer::getShort
-
 private val bufferGetInt: BufferParser<Int> = ByteBuffer::getInt
-
+private val bufferGetByte: BufferParser<Byte> = ByteBuffer::get
 private val bufferGetLong: BufferParser<Long> = ByteBuffer::getLong
-
+private val bufferGetShort: BufferParser<Short> = ByteBuffer::getShort
 private val bufferGetBoolean: BufferParser<Boolean> =
-    { it.get() != 0.toByte() }
+    bufferGetByte.map { it != 0.toByte() }
+
+private fun bufferGetByteArray(size: Int): BufferParser<ByteArray> =
+    { it.getByteArray(size) }
 
 private fun bufferGetUtf8(size: Int): BufferParser<String> =
-    { String(it.getByteArray(size), UTF_8) }
+    bufferGetByteArray(size).map { String(it, UTF_8) }
 
 private val bufferGetUtf8: BufferParser<String> =
     bufferGetInt.flatMap(::bufferGetUtf8)
 
-private fun bufferGetBuffer(size: Int): BufferParser<ByteBuffer> = {
+private fun bufferGetByteBuffer(size: Int): BufferParser<ByteBuffer> = {
     val result = it.slice().limit(size).order(it.order())
     it.position(it.position() + size)
     result
 }
 
-private val bufferGetBuffer: BufferParser<ByteBuffer> =
-    bufferGetInt.flatMap(::bufferGetBuffer)
+private val bufferGetByteBuffer: BufferParser<ByteBuffer> =
+    bufferGetInt.flatMap(::bufferGetByteBuffer)
 
 private val bufferToInt: BufferParser<Int> = bufferGetInt.checkInput {
     if (it.remaining() != Int.SIZE_BYTES) {
@@ -88,11 +88,8 @@ private val bufferToInt: BufferParser<Int> = bufferGetInt.checkInput {
     }
 }
 
-private val bufferToByteArray: BufferParser<ByteArray> =
-    { it.getByteArray() }
-
+private val bufferToByteArray: BufferParser<ByteArray> = { it.getByteArray() }
 private val bufferToByteString: BufferParser<ByteString> = ::ByteString
-
 private val bufferToUtf8: BufferParser<String> =
     bufferToByteArray.map { String(it, UTF_8) }
 
@@ -136,7 +133,7 @@ private const val VARIANT_BYTE_ARRAY: Byte = 0x42
 private typealias VariantParser<T> = BufferParser<Pair<String, T>>
 
 private fun <T> variantParser(valueParser: BufferParser<T>): VariantParser<T> =
-    bufferGetUtf8.pair(bufferGetBuffer.map(valueParser))
+    bufferGetUtf8.pair(bufferGetByteBuffer.map(valueParser))
 
 private val variantEnd = Pair("", Unit)
 
@@ -191,10 +188,6 @@ private const val HEADER_ENCRYPTION_IV: Byte = 0x7
 private const val HEADER_KDF: Byte = 0x0b
 private const val HEADER_PUBLIC_CUSTOM_DATA: Byte = 0x0c
 
-private val endOfHeaderParser: BufferParser<Unit> = unitParser()
-
-private val commentParser: BufferParser<Unit> = unitParser()
-
 private val cipherParser: BufferParser<Cipher> =
     bufferToUuid.map(Cipher.Companion::from)
 
@@ -208,23 +201,18 @@ private val masterSeedParser: BufferParser<ByteString> =
         }
     }
 
-private val encryptionIvParser: BufferParser<ByteString> = bufferToByteString
-
 private val kdfParser: BufferParser<Kdf> =
     variantsParser.map(Kdf.Companion::from)
 
-private val publicCustomData: BufferParser<ImmutableMap<String, Any>> =
-    variantsParser
-
 private val headerParsers = mapOf(
-    Pair(HEADER_END, endOfHeaderParser),
-    Pair(HEADER_COMMENT, commentParser),
+    Pair(HEADER_END, unitParser()),
+    Pair(HEADER_COMMENT, unitParser()),
     Pair(HEADER_CIPHER, cipherParser),
     Pair(HEADER_COMPRESSION, compressionParser),
     Pair(HEADER_MASTER_SEED, masterSeedParser),
-    Pair(HEADER_ENCRYPTION_IV, encryptionIvParser),
+    Pair(HEADER_ENCRYPTION_IV, bufferToByteString),
     Pair(HEADER_KDF, kdfParser),
-    Pair(HEADER_PUBLIC_CUSTOM_DATA, publicCustomData)
+    Pair(HEADER_PUBLIC_CUSTOM_DATA, variantsParser)
 )
 
 private val headerParser: DataParser<Pair<Byte, Any>> =
@@ -250,6 +238,59 @@ private val headersParser: DataParser<Headers> =
         }
     }
 
+
+private const val INNER_HEADER_END: Byte = 0x0
+private const val INNER_HEADER_RANDOM_STREAM_ID: Byte = 0x1
+private const val INNER_HEADER_RANDOM_STREAM_KEY: Byte = 0x2
+private const val INNER_HEADER_BINARY: Byte = 0x3
+
+private val binaryParser: BufferParser<Binary> =
+    bufferGetBoolean.pair(bufferToByteString).map { (protected, value) ->
+        if (protected) {
+            Binary.Protected(value)
+        } else {
+            Binary.Plain(value)
+        }
+    }
+
+private val innerRandomStreamIdParser = bufferToInt.map {
+    if (it != 3) { // CharChar20
+        throw IllegalArgumentException("Unknown inner random stream ID $it")
+    }
+}
+
+private val innerHeaderParsers = mapOf(
+    Pair(INNER_HEADER_END, unitParser()),
+    Pair(INNER_HEADER_RANDOM_STREAM_ID, innerRandomStreamIdParser),
+    Pair(INNER_HEADER_RANDOM_STREAM_KEY, bufferToByteString),
+    Pair(INNER_HEADER_BINARY, binaryParser)
+)
+
+private val innerHeaderParser: DataParser<Pair<Byte, Any>> =
+    dataReadByte
+        .pair(dataReadByteBuffer(LITTLE_ENDIAN))
+        .flatMapSecond { type, _ ->
+            innerHeaderParsers[type]
+                ?: throw IllegalArgumentException("Invalid inner header $type")
+        }
+
+private val innerHeadersParser: DataParser<InnerHeaders> =
+    innerHeaderParser.repeat().map {
+        var key: ByteString? = null
+        val binaries = ImmutableList.builder<Binary>()
+        it.takeWhile { (type, _) -> type != INNER_HEADER_END }
+            .forEach { (type, value) ->
+                when (type) {
+                    INNER_HEADER_RANDOM_STREAM_KEY -> key = value as ByteString
+                    INNER_HEADER_BINARY -> binaries.add(value as Binary)
+                    else -> Unit
+                }
+            }
+        InnerHeaders(
+            key ?: throw NoSuchElementException("Inner random stream key"),
+            binaries.build()
+        )
+    }
 
 private val signature1Parser: DataParser<Int> = { input ->
     when (val value = input.readInt()) {
@@ -302,7 +343,7 @@ private fun databaseParser(
     headers: Headers,
     headerBytes: ByteArray,
     key: ByteArray
-): Parser<LittleEndianDataInputStream, Unit> = { input ->
+): Parser<LittleEndianDataInputStream, InnerHeaders> = { input ->
 
     val keyBuf = headers.masterSeed.toByteArray() +
             headers.kdf.transform(key) +
@@ -324,7 +365,13 @@ private fun databaseParser(
         } else {
             decryptedStream
         }
+
+    val innerHeaders =
+        innerHeadersParser(LittleEndianDataInputStream(dataStream))
+
     dataStream.readAllBytes()
+
+    innerHeaders
 }
 
 internal fun parseKdbx(
@@ -340,12 +387,6 @@ internal fun parseKdbx(
     val signature2 = signature2Parser(data)
     val version = versionParser(data)
     val headers = headersParser(data)
-    val kdbx = Kdbx(
-        signature1,
-        signature2,
-        version,
-        headers
-    )
 
     val headerBytes = buffer.drainFromMark()
     val key = sha256(
@@ -353,6 +394,14 @@ internal fun parseKdbx(
             .filterNotNull()
             .toTypedArray()
     )
-    databaseParser(headers, headerBytes, key)(data)
+    val innerHeaders = databaseParser(headers, headerBytes, key)(data)
+
+    val kdbx = Kdbx(
+        signature1,
+        signature2,
+        version,
+        headers,
+        innerHeaders
+    )
     return kdbx
 }

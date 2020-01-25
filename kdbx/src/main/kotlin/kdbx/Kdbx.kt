@@ -4,7 +4,8 @@ internal data class Kdbx(
     val signature1: Int,
     val signature2: Int,
     val version: Int,
-    val headers: Headers
+    val headers: Headers,
+    val innerHeaders: InnerHeaders
 ) {
 
     companion object {
