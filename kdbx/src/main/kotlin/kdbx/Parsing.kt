@@ -276,16 +276,24 @@ private val innerHeaderParser: DataParser<Pair<Byte, Any>> =
 
 private val innerHeadersParser: DataParser<InnerHeaders> =
     innerHeaderParser.repeat().map {
+        var id = false
         var key: ByteString? = null
         val binaries = ImmutableList.builder<Binary>()
+
         it.takeWhile { (type, _) -> type != INNER_HEADER_END }
             .forEach { (type, value) ->
                 when (type) {
+                    INNER_HEADER_RANDOM_STREAM_ID -> id = true
                     INNER_HEADER_RANDOM_STREAM_KEY -> key = value as ByteString
                     INNER_HEADER_BINARY -> binaries.add(value as Binary)
                     else -> Unit
                 }
             }
+
+        if (!id) {
+            throw NoSuchElementException("Inner random stream ID")
+        }
+
         InnerHeaders(
             key ?: throw NoSuchElementException("Inner random stream key"),
             binaries.build()
