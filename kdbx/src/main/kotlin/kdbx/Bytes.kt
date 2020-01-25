@@ -19,5 +19,8 @@ internal fun Long.encode(order: ByteOrder): ByteArray = ByteBuffer
     .putLong(this)
     .array()
 
+internal fun ByteBuffer.getByteArray(size: Int = remaining()): ByteArray =
+    ByteArray(size).also { get(it) }
+
 internal fun DataInput.readFully(size: Int): ByteArray =
     ByteArray(size).also(::readFully)

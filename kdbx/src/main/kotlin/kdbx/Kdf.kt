@@ -3,7 +3,6 @@ package kdbx
 import com.kosprov.jargon2.api.Jargon2
 import com.kosprov.jargon2.api.Jargon2.jargon2LowLevelApi
 import java.util.*
-import kotlin.NoSuchElementException
 
 internal sealed class Kdf {
 
@@ -11,7 +10,7 @@ internal sealed class Kdf {
 
     companion object {
         fun from(params: Map<String, Any>): Kdf =
-            when (val uuid = readUuid(params.require("\$UUID"))) {
+            when (val uuid = readUuid(params.getRequired("\$UUID"))) {
                 Aes.uuid -> Aes.from(params)
                 Argon2.uuid -> Argon2.from(params)
                 else -> throw IllegalArgumentException("Unknown KDF: $uuid")
@@ -21,7 +20,6 @@ internal sealed class Kdf {
             bytes.toReadonlyByteBuffer().run { UUID(long, long) }
     }
 
-    // https://github.com/keepassxreboot/keepassxc/blob/2.5.1/src/crypto/kdf/AesKdf.cpp
     data class Aes(val seed: ByteString, val rounds: Int) : Kdf() {
 
         init {
@@ -51,8 +49,8 @@ internal sealed class Kdf {
             )
 
             fun from(params: Map<String, Any>) = Aes(
-                seed = params.require("S"),
-                rounds = params.require("R")
+                seed = params.getRequired("S"),
+                rounds = params.getRequired("R")
             )
         }
     }
@@ -117,11 +115,11 @@ internal sealed class Kdf {
             )
 
             fun from(params: Map<String, Any>) = Argon2(
-                salt = params.require("S"),
-                memoryKb = (params.require<String, Long>("M") / 1024).toInt(),
-                iterations = params.require<String, Long>("I").toInt(),
-                parallelism = params.require("P"),
-                version = params.require<String, Int>("V").run {
+                salt = params.getRequired("S"),
+                memoryKb = (params.getRequired<String, Long>("M") / 1024).toInt(),
+                iterations = params.getRequired<String, Long>("I").toInt(),
+                parallelism = params.getRequired("P"),
+                version = params.getRequired<String, Int>("V").run {
                     versions.find { it.value == this }
                         ?: throw IllegalArgumentException("Unknown version $this")
                 }
@@ -130,14 +128,3 @@ internal sealed class Kdf {
     }
 
 }
-
-private inline fun <K, reified V> Map<K, Any?>.require(key: K): V =
-    get(key).let {
-        if (it == null) {
-            throw NoSuchElementException(key.toString())
-        }
-        if (it !is V) {
-            throw ClassCastException("Cannot cast ${it::class.java} to ${V::class.java}")
-        }
-        it
-    }

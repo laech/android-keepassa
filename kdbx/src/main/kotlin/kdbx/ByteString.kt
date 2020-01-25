@@ -7,6 +7,8 @@ internal class ByteString private constructor(
 ) {
     val size: Int get() = array.size
 
+    constructor(buffer: ByteBuffer) : this(buffer.getByteArray())
+
     override fun toString(): String =
         array.joinToString("") { "%02x".format(it) }
 

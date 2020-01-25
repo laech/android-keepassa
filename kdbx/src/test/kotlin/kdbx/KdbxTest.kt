@@ -1,5 +1,6 @@
 package kdbx
 
+import com.google.common.collect.ImmutableMap
 import com.kosprov.jargon2.api.Jargon2
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -14,7 +15,7 @@ class KdbxTest {
         KdbxTest::class.java.getResourceAsStream("test.kdbx").use {
             val passwordHash = MessageDigest.getInstance("SHA-256")
                 .digest("test".toByteArray(UTF_8))
-            val db = Kdbx.read(it, passwordHash, null)
+            val db = parseKdbx(it, passwordHash, null)
             assertEquals(0x9aa2d903, Integer.toUnsignedLong(db.signature1))
             assertEquals(0xb54bfb67, Integer.toUnsignedLong(db.signature2))
             assertEquals(0x00040000, db.version)
@@ -31,7 +32,7 @@ class KdbxTest {
                         10,
                         2
                     ),
-                    publicCustomData = null
+                    publicCustomData = ImmutableMap.of()
                 ),
                 db.headers
             )
