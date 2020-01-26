@@ -16,13 +16,12 @@ class KdbxTest {
         KdbxTest::class.java.getResourceAsStream("test.kdbx").use {
             val passwordHash = MessageDigest.getInstance("SHA-256")
                 .digest("test".toByteArray(UTF_8))
-            val db = parseKdbx(it, passwordHash, null)
-            assertEquals(0x9aa2d903, Integer.toUnsignedLong(db.signature1))
-            assertEquals(0xb54bfb67, Integer.toUnsignedLong(db.signature2))
-            assertEquals(0x00040000, db.version)
             assertEquals(
-                Pair(
-                    Headers(
+                Kdbx(
+                    signature1 = 0x9aa2d903.toInt(),
+                    signature2 = 0xb54bfb67.toInt(),
+                    version = 0x00040000,
+                    headers = Headers(
                         compression = Compression.GZIP,
                         cipher = Cipher.AES,
                         masterSeed = ByteString.from(ByteBuffer.allocate(0)),
@@ -36,6 +35,7 @@ class KdbxTest {
                         ),
                         publicCustomData = ImmutableMap.of()
                     ),
+                    innerHeaders =
                     InnerHeaders(
                         innerRandomStreamKey = ByteString.from(
                             ByteBuffer.allocate(
@@ -43,9 +43,10 @@ class KdbxTest {
                             )
                         ),
                         binaries = ImmutableList.of()
-                    )
+                    ),
+                    content = Node("", ImmutableList.of(), Text(""))
                 ),
-                Pair(db.headers, db.innerHeaders)
+                parseKdbx(it, passwordHash, null)
             )
         }
     }

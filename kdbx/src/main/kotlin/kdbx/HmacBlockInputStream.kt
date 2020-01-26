@@ -1,16 +1,18 @@
 package kdbx
 
-import com.google.common.io.LittleEndianDataInputStream
+import java.io.DataInput
 import java.io.IOException
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder.LITTLE_ENDIAN
 import kotlin.math.min
 
-internal class HmacBlockInputStream(
-    private val input: LittleEndianDataInputStream,
+internal class HmacBlockInputStream<T>(
+    private val input: T,
     private val key: ByteArray
-) : InputStream() {
+) : InputStream()
+        where T : DataInput,
+              T : InputStream {
 
     private var index: Long = 0
     private var buffer = ByteBuffer.allocate(0)

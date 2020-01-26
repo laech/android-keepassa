@@ -347,11 +347,13 @@ private fun headerMacCheck(
     }
 }
 
-private fun databaseParser(
+private fun <T> databaseParser(
     headers: Headers,
     headerBytes: ByteArray,
     key: ByteArray
-): Parser<LittleEndianDataInputStream, InnerHeaders> = { input ->
+): Parser<T, Pair<InnerHeaders, Node>>
+        where T : DataInput,
+              T : InputStream = { input ->
 
     val keyBuf = headers.masterSeed.toByteArray() +
             headers.kdf.transform(key) +
@@ -376,10 +378,9 @@ private fun databaseParser(
 
     val innerHeaders =
         innerHeadersParser(LittleEndianDataInputStream(dataStream))
+    val content = parseXml(dataStream)
 
-    dataStream.readAllBytes()
-
-    innerHeaders
+    Pair(innerHeaders, content)
 }
 
 internal fun parseKdbx(
@@ -402,14 +403,19 @@ internal fun parseKdbx(
             .filterNotNull()
             .toTypedArray()
     )
-    val innerHeaders = databaseParser(headers, headerBytes, key)(data)
+    val (innerHeaders, content) = databaseParser<LittleEndianDataInputStream>(
+        headers,
+        headerBytes,
+        key
+    )(data)
 
     val kdbx = Kdbx(
         signature1,
         signature2,
         version,
         headers,
-        innerHeaders
+        innerHeaders,
+        content
     )
     return kdbx
 }
