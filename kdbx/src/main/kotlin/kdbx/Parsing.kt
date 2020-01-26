@@ -40,10 +40,7 @@ private fun <I, O> Parser<I, O>.repeat(): Parser<I, Sequence<O>> =
     { input -> generateSequence { this }.map { it(input) } }
 
 private fun <I, O> Parser<I, O>.checkInput(check: (I) -> Unit): Parser<I, O> =
-    {
-        check(it)
-        this(it)
-    }
+    { check(it); this(it) }
 
 private fun <I, O> Parser<I, O>.checkOutput(check: (O) -> Unit): Parser<I, O> =
     { this(it).also(check) }
@@ -121,6 +118,8 @@ private fun dataReadByteBuffer(order: ByteOrder): DataParser<ByteBuffer> =
     dataReadInt.flatMap { dataReadByteBuffer(order, it) }
 
 
+private const val VARIANT_VERSION_MAJOR_MASK: Short = 0xff00.toShort()
+private const val VARIANT_VERSION: Short = 0x0100
 private const val VARIANT_END: Byte = 0x0
 private const val VARIANT_UINT32: Byte = 0x04
 private const val VARIANT_UINT64: Byte = 0x05
@@ -156,8 +155,8 @@ private val variantTypeParser: VariantParser<Any> =
 
 private val variantsVersionParser: BufferParser<Unit> =
     bufferGetShort.map { version ->
-        val major = version.and(Kdbx.VARIANT_VERSION_MAJOR_MASK)
-        val max = Kdbx.VARIANT_VERSION.and(Kdbx.VARIANT_VERSION_MAJOR_MASK)
+        val major = version.and(VARIANT_VERSION_MAJOR_MASK)
+        val max = VARIANT_VERSION.and(VARIANT_VERSION_MAJOR_MASK)
         if (major > max) {
             throw IllegalArgumentException(
                 "Unsupported version 0x${Integer.toHexString(
@@ -169,10 +168,7 @@ private val variantsVersionParser: BufferParser<Unit> =
 
 private val variantsDataParser: BufferParser<ImmutableMap<String, Any>> =
     variantTypeParser.repeat().map { variants ->
-        variants
-            .takeWhile { it != variantEnd }
-            .toMap()
-            .let { ImmutableMap.copyOf(it) }
+        variants.takeWhile { it != variantEnd }.toImmutableMap()
     }
 
 private val variantsParser: BufferParser<ImmutableMap<String, Any>> =
@@ -300,37 +296,41 @@ private val innerHeadersParser: DataParser<InnerHeaders> =
         )
     }
 
-private val signature1Parser: DataParser<Int> = { input ->
-    when (val value = input.readInt()) {
-        Kdbx.SIGNATURE_1 -> value
-        else -> throw IllegalArgumentException("Unknown signature1: $value")
+
+private const val SIGNATURE_1: Int = 0x9aa2d903.toInt()
+private const val SIGNATURE_2: Int = 0xb54bfb67.toInt()
+private const val FILE_VERSION_MAJOR_MASK: Int = 0xffff0000.toInt()
+private const val FILE_VERSION_4: Int = 0x00040000
+
+private val signature1Parser: DataParser<Int> = dataReadInt.checkOutput {
+    if (it != SIGNATURE_1) {
+        throw IllegalArgumentException("Unknown signature1: $it")
     }
 }
 
-private val signature2Parser: DataParser<Int> = { input ->
-    when (val value = input.readInt()) {
-        Kdbx.SIGNATURE_2 -> value
-        else -> throw IllegalArgumentException("Unknown signature2: $value")
-    }
+private val signature2Parser: DataParser<Int> = dataReadInt.checkOutput {
+    if (it != SIGNATURE_2)
+        throw IllegalArgumentException("Unknown signature2: $it")
 }
 
 private val versionParser: DataParser<Int> = dataReadInt.checkOutput {
-    if (it.and(Kdbx.FILE_VERSION_MAJOR_MASK) != Kdbx.FILE_VERSION_4) {
+    if (it.and(FILE_VERSION_MAJOR_MASK) != FILE_VERSION_4) {
         throw IllegalArgumentException("Unknown version: $it")
     }
 }
 
-private fun headerHashCheck(headerBytes: ByteArray): DataParser<Unit> =
-    dataReadByteArray(32).map {
-        val hash = sha256(headerBytes)
-        if (!it.contentEquals(hash)) {
-            throw IllegalArgumentException(
-                "Header hash mismatch" +
-                        ", stored ${it.toHexString()}" +
-                        ", calculated ${hash.toHexString()}"
-            )
-        }
+private fun headerHashCheck(
+    headers: ByteArray
+): DataParser<Unit> = dataReadByteArray(32).map {
+    val hash = sha256(headers)
+    if (!it.contentEquals(hash)) {
+        throw IllegalArgumentException(
+            "Header hash mismatch" +
+                    ", stored ${it.toHexString()}" +
+                    ", calculated ${hash.toHexString()}"
+        )
     }
+}
 
 private fun headerMacCheck(
     headers: ByteArray,

@@ -1,5 +1,8 @@
 package kdbx
 
+import com.google.common.collect.ImmutableList
+import com.google.common.collect.ImmutableMap
+
 internal data class Kdbx(
     val signature1: Int,
     val signature2: Int,
@@ -7,14 +10,31 @@ internal data class Kdbx(
     val headers: Headers,
     val innerHeaders: InnerHeaders,
     val content: Node
-) {
+)
+
+internal data class Headers(
+    val compression: Compression,
+    val cipher: Cipher,
+    val masterSeed: ByteString,
+    val encryptionIv: ByteString,
+    val kdf: Kdf,
+    val publicCustomData: ImmutableMap<String, Any>
+)
+
+internal data class InnerHeaders(
+    val innerRandomStreamKey: ByteString,
+    val binaries: ImmutableList<Binary>
+)
+
+internal enum class Compression {
+    // The ordinal of each value is also their corresponding ID
+    NONE,
+    GZIP;
 
     companion object {
-        internal const val SIGNATURE_1: Int = 0x9aa2d903.toInt()
-        internal const val SIGNATURE_2: Int = 0xb54bfb67.toInt()
-        internal const val FILE_VERSION_MAJOR_MASK: Int = 0xffff0000.toInt()
-        internal const val FILE_VERSION_4: Int = 0x00040000
-        internal const val VARIANT_VERSION_MAJOR_MASK: Short = 0xff00.toShort()
-        internal const val VARIANT_VERSION: Short = 0x0100
+        private val values = values()
+
+        internal fun from(id: Int) = values.getOrNull(id)
+            ?: throw IllegalArgumentException(id.toString())
     }
 }
