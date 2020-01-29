@@ -1,8 +1,9 @@
-package kdbx
+package l.keepassa.kdbx
 
-import com.kosprov.jargon2.api.Jargon2
-import com.kosprov.jargon2.api.Jargon2.jargon2LowLevelApi
 import java.util.*
+import org.signal.argon2.Argon2.Builder as Argon2Builder
+import org.signal.argon2.Type as Argon2Type
+import org.signal.argon2.Version as Argon2Version
 
 internal sealed class Kdf {
 
@@ -44,9 +45,8 @@ internal sealed class Kdf {
         }
 
         companion object {
-            internal val uuid = UUID.fromString(
-                "7c02bb82-79a7-4ac0-927d-114a00648238"
-            )
+            internal val uuid =
+                UUID.fromString("7c02bb82-79a7-4ac0-927d-114a00648238")
 
             fun from(params: Map<String, Any>) = Aes(
                 seed = params.getRequired("S"),
@@ -57,7 +57,7 @@ internal sealed class Kdf {
 
     // https://github.com/keepassxreboot/keepassxc/blob/2.5.1/src/crypto/kdf/Argon2Kdf.cpp
     data class Argon2(
-        val version: Jargon2.Version,
+        val version: Argon2Version,
         val salt: ByteString,
         val memoryKb: Int,
         val iterations: Int,
@@ -96,23 +96,25 @@ internal sealed class Kdf {
         }
 
         override fun transform(password: ByteArray): ByteArray =
-            jargon2LowLevelApi().rawHash(
-                Jargon2.Type.ARGON2d,
-                version,
-                memoryKb,
-                iterations,
-                parallelism,
-                32,
-                salt.toByteArray(),
-                password
-            )
+            Argon2Builder(version)
+                .type(Argon2Type.Argon2d)
+                .memoryCostKiB(memoryKb)
+                .iterations(iterations)
+                .parallelism(parallelism)
+                .hashLength(32)
+                .build()
+                .hash(password, salt.toByteArray())
+                .hash
 
         companion object {
-            private val versions = Jargon2.Version.values()
 
-            internal val uuid = UUID.fromString(
-                "ef636ddf-8c29-444b-91f7-a9a403e30a0c"
+            private val versions = mapOf(
+                Pair(0x10, Argon2Version.V10),
+                Pair(0x13, Argon2Version.V13)
             )
+
+            internal val uuid =
+                UUID.fromString("ef636ddf-8c29-444b-91f7-a9a403e30a0c")
 
             fun from(params: Map<String, Any>) = Argon2(
                 salt = params.getRequired("S"),
@@ -120,7 +122,7 @@ internal sealed class Kdf {
                 iterations = params.getRequired<String, Long>("I").toInt(),
                 parallelism = params.getRequired("P"),
                 version = params.getRequired<String, Int>("V").run {
-                    versions.find { it.value == this }
+                    versions[this]
                         ?: throw IllegalArgumentException("Unknown version $this")
                 }
             )

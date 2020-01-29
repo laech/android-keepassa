@@ -1,4 +1,4 @@
-package kdbx
+package l.keepassa.kdbx
 
 internal inline fun <K, reified V> Map<K, *>.getTyped(key: K): V? {
     val value = get(key)

@@ -1,4 +1,4 @@
-package kdbx
+package l.keepassa.kdbx
 
 import java.security.MessageDigest
 import javax.crypto.Mac

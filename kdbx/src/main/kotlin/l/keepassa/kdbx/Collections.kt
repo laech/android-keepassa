@@ -1,4 +1,4 @@
-package kdbx
+package l.keepassa.kdbx
 
 import com.google.common.collect.ImmutableMap
 

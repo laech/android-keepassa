@@ -1,4 +1,4 @@
-package kdbx
+package l.keepassa.kdbx
 
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.ImmutableMap
@@ -71,8 +71,10 @@ private val bufferGetUtf8: BufferParser<String> =
     bufferGetInt.flatMap(::bufferGetUtf8)
 
 private fun bufferGetByteBuffer(size: Int): BufferParser<ByteBuffer> = {
-    val result = it.slice().limit(size).order(it.order())
+    val result = it.slice()
     it.position(it.position() + size)
+    result.limit(size)
+    result.order(it.order())
     result
 }
 
@@ -385,7 +387,7 @@ private fun <T> databaseParser(
 
 internal fun parseKdbx(
     input: InputStream,
-    passwordHash: ByteArray?,
+    password: String?,
     keyFileHash: ByteArray?
 ): Kdbx {
     val buffer = BufferingInputStream(input)
@@ -397,6 +399,8 @@ internal fun parseKdbx(
     val version = versionParser(data)
     val headers = headersParser(data)
 
+    val passwordHash =
+        if (password != null) sha256(password.toByteArray(UTF_8)) else null
     val headerBytes = buffer.drainFromMark()
     val key = sha256(
         *arrayOf(passwordHash, keyFileHash)

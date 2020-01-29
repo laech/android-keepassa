@@ -1,4 +1,4 @@
-package kdbx
+package l.keepassa.kdbx
 
 internal sealed class Binary {
     abstract val value: ByteString

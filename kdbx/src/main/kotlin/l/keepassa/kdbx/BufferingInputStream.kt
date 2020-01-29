@@ -1,4 +1,4 @@
-package kdbx
+package l.keepassa.kdbx
 
 import java.io.BufferedInputStream
 import java.io.IOException

@@ -1,7 +1,8 @@
-package kdbx
+package l.keepassa.kdbx
 
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.ImmutableMap
+import java.io.InputStream
 
 internal data class Kdbx(
     val signature1: Int,
@@ -37,4 +38,8 @@ internal enum class Compression {
         internal fun from(id: Int) = values.getOrNull(id)
             ?: throw IllegalArgumentException(id.toString())
     }
+}
+
+fun kdbxOpen(input: InputStream, password: String): String {
+    return parseKdbx(input, password, null).content.toString()
 }
